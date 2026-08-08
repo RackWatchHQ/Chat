@@ -2,6 +2,9 @@
 
 This repository is the working source for the RackWatch developer documentation pack.
 
+**Legal entity:** RackWatch Systems Ltd  
+**Trading / product brand:** RackWatch
+
 ## Current controlled documents
 
 - `RWS-001/` — RackWatch Engineering Specification, Revision 1.0, Developer Issue
@@ -18,6 +21,10 @@ The repository exists to prevent engineering decisions becoming trapped in chat 
 RWS-001 is derived from the reviewed Engineering Specification v0.7 and incorporates the agreed review changes, including a vendor-neutral adapter model and SNMP as a baseline monitoring source.
 
 RWS-002 is derived from the RackWatch Tech Summary v0.9 and consolidates the current hardware, security, licensing and commercial architecture.
+
+## Publishing rule
+
+All controlled RackWatch documents shall identify the legal entity as **RackWatch Systems Ltd**. The footer copyright line shall read **© RackWatch Systems Ltd**.
 
 ## Status
 
