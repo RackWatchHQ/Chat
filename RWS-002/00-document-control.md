@@ -2,6 +2,7 @@
 
 **Revision:** 1.0  
 **Status:** Developer Issue  
+**Legal entity:** RackWatch Systems Ltd  
 **Document owner:** RackWatch Engineering  
 **Product baseline:** Build 1
 
@@ -35,5 +36,9 @@ Current baseline assumptions include:
 - local operation without dependency on Wi-Fi or Internet connectivity;
 - hardware-backed product identity/security using a current Microchip CryptoAuthentication device, with final component selection subject to lifecycle verification;
 - custom rack chassis and carrier-board design developed together rather than as independent mechanical and PCB exercises.
+
+## Publishing identity
+
+Controlled issue copies shall use **RackWatch Systems Ltd** as the legal entity. The document footer copyright line shall read **© RackWatch Systems Ltd**.
 
 Items that remain subject to detailed engineering shall be marked **TBD** or **Provisional** rather than guessed.
