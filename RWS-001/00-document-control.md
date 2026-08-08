@@ -2,6 +2,7 @@
 
 **Revision:** 1.0  
 **Status:** Developer Issue  
+**Legal entity:** RackWatch Systems Ltd  
 **Document owner:** RackWatch Engineering  
 **Product baseline:** Build 1
 
@@ -42,6 +43,10 @@ The terms **shall**, **should** and **may** are used deliberately:
 | RWS-000 | Document register, status and control |
 | RWS-001 | Product behaviour and engineering architecture |
 | RWS-002 | Technical and hardware specification |
+
+## Publishing identity
+
+Controlled issue copies shall use **RackWatch Systems Ltd** as the legal entity. The document footer copyright line shall read **© RackWatch Systems Ltd**.
 
 ## Build 1 release intent
 
