@@ -1,0 +1,15 @@
+{
+  "site": { "name": "Test Site", "config_label": "test" },
+  "pollIntervalMs": 30000,
+  "devices": [
+    { "device_id": "core-switch-a", "name": "Core Switch A", "type": "Network Switch", "operational_role": "Core Switch", "operational_system": "Network", "dashboard_column": "Infrastructure", "dashboard_group": "Switches" },
+    { "device_id": "access-switch-b", "name": "Access Switch B", "type": "Network Switch", "operational_role": "Access Switch", "operational_system": "Network", "dashboard_column": "Infrastructure", "dashboard_group": "Switches" },
+    { "device_id": "camera-1", "name": "Camera 1", "type": "Camera", "operational_role": "PTZ Camera", "operational_system": "Video", "dashboard_column": "Cameras" }
+  ],
+  "states": [
+    { "device_id": "core-switch-a", "state": "Healthy", "confidence": "High", "since": "2026-01-01T00:00:00.000Z" },
+    { "device_id": "access-switch-b", "state": "Healthy", "confidence": "High", "since": "2026-01-01T00:00:00.000Z" },
+    { "device_id": "camera-1", "state": "Healthy", "confidence": "High", "since": "2026-01-01T00:00:00.000Z" }
+  ],
+  "incidents": []
+}

@@ -132,6 +132,11 @@
   color: var(--fault);
 }
 
+.banner-reason-extra {
+  font-weight: 500;
+  color: var(--muted);
+}
+
 /* ---- Columns ---- */
 
 .kiosk-columns {

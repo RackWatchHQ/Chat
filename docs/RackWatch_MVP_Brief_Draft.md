@@ -62,7 +62,7 @@ no bespoke carrier board.
 | Front panel — RGB LED | **Confirmed:** WS2812B, bare 5050 SMD package, single GPIO data pin | No PCA9633 driver chip needed — addressable driver is built into the LED package. See §6a for light pipe pairing and footprint. |
 | Secure element (ATECC608C) | **Omitted** | Not needed for a single non-commercial research unit |
 | Power-loss hardware (brownout detect, supercaps) | **Omitted** | Client site confirmed standard mains, no special protection needed |
-| Power-loss *software* | **Kept** — SQLite WAL mode | Already in the code, zero cost to keep, worth retaining as good practice regardless |
+| Power-loss *software* | **Kept** — SQLite WAL mode | **Built and confirmed** — `journal_mode = WAL` + `synchronous = NORMAL` set on every connection open (`persistence.ts`), not assumed from the file on disk. Zero cost to keep, worth retaining as good practice regardless |
 | Enclosure | **Confirmed:** Penn Elcom R2110/1UK — 1U, 300mm deep, 3mm black aluminium front panel (removable) | Front panel drills separately from the box — cleaner cuts, low cost if a hole goes wrong. 3mm aluminium is easily hand-drillable for all cutouts (light pipe, e-ink window, EtherCon, button) |
 
 ## 4. Explicitly deferred from v0.9 (not being validated by this MVP)
@@ -82,11 +82,12 @@ carries over to the MVP unchanged — this is the main reason the pivot is low-r
 | Piece | Owner | Notes |
 |---|---|---|
 | Domain logic, state engine, dependency evaluator, incident engine | **Already built** | No change needed for MVP hardware |
-| SNMP baseline adapter | Claude Code | New — needed per §4.1 of v0.9 spec regardless of MVP/production |
-| Vendor adapter plugin interface | Claude Code | Formalise existing Integration/AdapterReference/Observation types |
-| SQLite/WAL persistence layer | Claude Code | Wiring existing shapes to real tables |
-| WebSocket push to dashboard | Claude Code | Well-trodden pattern |
-| React dashboard | Claude Code | Build out from existing prototype (`switch-dashboard.jsx`) |
+| SNMP baseline adapter | **Built** | Per §4.1 of v0.9 spec. Polls the standard system-group OIDs (sysDescr/sysObjectID/sysUpTime) via `net-snmp`; fully wired into `state-engine.ts` alongside ICMP/UniFi — SNMP evidence contributes to consecutive-run hysteresis and the two-source confidence bump, not just computed and discarded |
+| Vendor adapter plugin interface | **Built** | `AdapterPlugin`/`AdapterCheckContext` (v0.9 spec §4.4) formalise the existing Integration/AdapterReference/Observation types; ICMP, UniFi, and SNMP each export a conforming plugin, no behaviour change to any of the three |
+| SQLite/WAL persistence layer | **Built** | `node:sqlite` (`DatabaseSync`), file-backed at `data/rackwatch.sqlite` in production. `journal_mode = WAL` + `synchronous = NORMAL` confirmed set on every connection open (`persistence.ts` constructor), not assumed from the file on disk |
+| WebSocket push to dashboard | **Built** | `ws-server.ts` — snapshot message on connect, incremental update message per poll cycle, wired to `scheduler.ts`'s `onCycleComplete` |
+| React dashboard | **Built** | Real WebSocket connection with reconnect/capped-backoff in `switch-dashboard.jsx`; renders both per-device state rows and an incident-level "Attention Required" summary grouped by open Incident (root cause + affected count), not one red row per affected device |
+| UI verification tooling | **Built** | `/run-dashboard` project skill — mock WebSocket fixture server + Playwright driver, for screenshotting dashboard changes without waiting on the real scheduler's poll cycles |
 | e-ink companion service | Claude Code (draft) + Ric (hands-on validation) | Small Python process owning the panel (Waveshare libs are Python/C), Node/TS app sends render requests to it over a local socket/queue. GPIO pinout confirmation and real refresh behaviour need physical validation — can't be proven from code alone |
 | RGB LED (GPIO PWM) | Claude Code | Simple if driven directly rather than via I2C chip |
 | Cloud backend / entitlement | **Not needed for MVP** | Single unit, no licensing to enforce yet |

@@ -224,11 +224,11 @@ The domain logic (adapters, state engine, dependency evaluator, incident engine)
 | **Layer** | **Chosen / confirmed** | **Status** |
 | --- | --- | --- |
 | Domain logic — adapters, state engine, dependency evaluator, incident engine | TypeScript, Node.js runtime | Confirmed — already written |
-| Vendor adapter plugin architecture (Section 4) | Formalise the existing Integration/AdapterReference/Observation types into an explicit plugin interface; add SNMP as the baseline adapter | Open — architecture direction set, implementation not yet built |
-| Dashboard frontend | React | Confirmed — prototype exists (switch-dashboard.jsx) |
-| Local state store | SQLite, WAL mode | Confirmed — chosen for power-loss resilience |
+| Vendor adapter plugin architecture (Section 4) | Formalise the existing Integration/AdapterReference/Observation types into an explicit plugin interface; add SNMP as the baseline adapter | Confirmed — done. `AdapterPlugin`/`AdapterCheckContext` implemented in `domain-model.ts`; ICMP, UniFi, and SNMP each export a conforming plugin. SNMP adapter polls the standard system-group OIDs and is fully wired into the state engine |
+| Dashboard frontend | React | Confirmed — done, not just a prototype. Real WebSocket connection (`switch-dashboard.jsx`, reconnect with capped backoff), renders per-device state plus an incident-level summary grouped by open Incident (root cause + affected count), not a static mockup |
+| Local state store | SQLite, WAL mode | Confirmed — done. `node:sqlite` (`DatabaseSync`), file-backed in production; `journal_mode = WAL` + `synchronous = NORMAL` verified set on every connection open, not just a chosen direction |
 | Device OS | Debian-based Linux (Raspberry Pi OS-derived), read-only root | Confirmed — approach only, distro build TBD |
-| Realtime push to dashboard | WebSocket server | Confirmed concept; implementation not yet built |
+| Realtime push to dashboard | WebSocket server | Confirmed — done. `ws-server.ts` — snapshot message on connect, incremental update per poll cycle, wired to the scheduler's poll-cycle completion |
 | Secure-element integration | Microchip CryptoAuthLib (C) — needs a binding layer into the Node/TS runtime | Open — integration approach to be scoped |
 | e-ink driver / renderer | Not yet chosen — Waveshare reference libraries are Python/C | Open |
 | Cloud backend (id.rackwatch.net, entitlement, PKI records, notifications) | Not yet chosen — TypeScript/Node recommended for one shared skillset with the device app layer | Open — recommendation, not a locked decision |

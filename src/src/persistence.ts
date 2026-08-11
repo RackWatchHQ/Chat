@@ -77,6 +77,30 @@ export class RackWatchStore {
       mkdirSync(dirname(path), { recursive: true });
     }
     this.db = new DatabaseSync(path);
+
+    // v0.9 spec §3.7 (power-loss resilience): this store must run in WAL
+    // mode - it's designed specifically to survive power loss mid-write
+    // without corruption, the actual failure mode this appliance is
+    // built against (a breaker throw, not a graceful shutdown). Not a
+    // one-time migration: journal_mode is a per-connection pragma, so
+    // it's set here in the constructor - every connection open, not
+    // just once - rather than assumed from the file on disk.
+    const { journal_mode: journalMode } = this.db.prepare("PRAGMA journal_mode = WAL").get() as {
+      journal_mode: string;
+    };
+    if (journalMode.toLowerCase() !== "wal" && path !== ":memory:") {
+      // :memory: databases can't use WAL and silently fall back - not a
+      // problem there. On a real file, failing to land in WAL defeats
+      // the whole reason SQLite was chosen, so this is loud on purpose.
+      throw new Error(`persistence: expected WAL journal mode for ${path}, got '${journalMode}'`);
+    }
+
+    // WAL's standard pairing (v0.9 spec §3.7): NORMAL is safe under WAL
+    // specifically - the WAL file itself, not just the main DB, is what
+    // guarantees durability, so this doesn't trade away crash-safety to
+    // get there.
+    this.db.exec("PRAGMA synchronous = NORMAL");
+
     this.db.exec(SCHEMA);
   }
 

@@ -23,13 +23,20 @@ funding." See the brief for the full criteria.
 
 TypeScript / Node.js throughout. React dashboard. SQLite in WAL mode for local state
 (chosen specifically for power-loss resilience — keep this even where MVP drops the
-power-loss *hardware*). Domain logic files already exist and define the contracts everything
-else builds on:
+power-loss *hardware*; `journal_mode = WAL` + `synchronous = NORMAL` confirmed set on every
+connection open in `persistence.ts`, not assumed from the file on disk). Domain logic files
+already exist and define the contracts everything else builds on:
 
-`domain-model.ts` → `icmp-adapter.ts` / `unifi-adapter.ts` → `state-engine.ts` →
-`dependency-evaluator.ts` → `incident-engine.ts`
+`domain-model.ts` → `icmp-adapter.ts` / `unifi-adapter.ts` / `snmp-adapter.ts` → `state-engine.ts` →
+`dependency-evaluator.ts` → `incident-engine.ts` → `scheduler.ts` → `persistence.ts` / `ws-server.ts` →
+React dashboard (`switch-dashboard.jsx`)
 
 Each stage depends on contracts established by the prior one — build and extend in that order.
+This full chain is built end-to-end: all three baseline/vendor adapters feed the state engine
+(SNMP evidence contributes to consecutive-run hysteresis and the two-source confidence bump
+alongside ICMP/UniFi, not just computed and discarded), state persists to SQLite, and pushes
+over WebSocket to a real dashboard connection — snapshot on connect, incremental updates per
+poll cycle, incident-level summary alongside per-device state.
 
 ## Core architectural rules (do not violate silently)
 

@@ -96,6 +96,7 @@ function useRackWatchSocket(url) {
   const [pollIntervalMs, setPollIntervalMs] = useState(0);
   const [devices, setDevices] = useState(new Map());
   const [states, setStates] = useState(new Map());
+  const [incidents, setIncidents] = useState([]);
   const [lastPollAt, setLastPollAt] = useState(null);
 
   useEffect(() => {
@@ -123,9 +124,11 @@ function useRackWatchSocket(url) {
           setPollIntervalMs(message.pollIntervalMs);
           setDevices(new Map(message.devices.map((d) => [d.device_id, d])));
           setStates(new Map(message.states.map((s) => [s.device_id, s])));
+          setIncidents(message.incidents);
           if (message.polledAt) setLastPollAt(new Date(message.polledAt).getTime());
         } else if (message.type === "update") {
           setStates(new Map(message.states.map((s) => [s.device_id, s])));
+          setIncidents(message.incidents);
           setLastPollAt(new Date(message.polledAt).getTime());
         }
       };
@@ -150,7 +153,7 @@ function useRackWatchSocket(url) {
     };
   }, [url]);
 
-  return { connectionStatus, site, pollIntervalMs, devices, states, lastPollAt };
+  return { connectionStatus, site, pollIntervalMs, devices, states, incidents, lastPollAt };
 }
 
 // ---- Group devices by dashboard_column, then dashboard_group ----
@@ -221,7 +224,27 @@ function Column({ name, groups, states }) {
   );
 }
 
-function Banner({ ok, siteName, attentionDevices, states }) {
+// One chip per open Incident (not per affected device) - an incident
+// with 4 affected devices is one operational problem with one probable
+// root cause, not 4 independent red rows (incident-engine.ts spec 7.1).
+function IncidentChip({ incident, devices, states }) {
+  const rootId = incident.most_probable_root_cause;
+  const rootDevice = rootId ? devices.get(rootId) : undefined;
+  const rootState = rootId ? states.get(rootId)?.state : undefined;
+  const otherAffectedCount = incident.affected_device_ids.filter((id) => id !== rootId).length;
+
+  return (
+    <div className="banner-reason-chip">
+      {rootDevice?.name ?? rootId ?? "Unknown device"}{" "}
+      {shortStatusLabel(rootState) || incident.lifecycle_stage}
+      {otherAffectedCount > 0 && (
+        <span className="banner-reason-extra"> · +{otherAffectedCount} more affected</span>
+      )}
+    </div>
+  );
+}
+
+function Banner({ ok, siteName, openIncidents, devices, states }) {
   return (
     <div className={`banner ${ok ? "banner-ok" : "banner-fault"}`}>
       <div className="banner-icon">{ok ? <CheckCircleIcon /> : <WarningTriangleIcon />}</div>
@@ -230,10 +253,8 @@ function Banner({ ok, siteName, attentionDevices, states }) {
       <p className="banner-site">{siteName}</p>
       {!ok && (
         <div className="banner-reasons">
-          {attentionDevices.map((device) => (
-            <div className="banner-reason-chip" key={device.device_id}>
-              {device.name} {shortStatusLabel(states.get(device.device_id)?.state)}
-            </div>
+          {openIncidents.map((incident) => (
+            <IncidentChip key={incident.incident_id} incident={incident} devices={devices} states={states} />
           ))}
         </div>
       )}
@@ -282,7 +303,7 @@ function Footer({ configLabel, pollIntervalMs, lastPollAt, nowMs }) {
 // ---- Root component ----
 
 export default function SwitchDashboard({ wsUrl = DEFAULT_WS_URL }) {
-  const { connectionStatus, site, pollIntervalMs, devices, states, lastPollAt } = useRackWatchSocket(wsUrl);
+  const { connectionStatus, site, pollIntervalMs, devices, states, incidents, lastPollAt } = useRackWatchSocket(wsUrl);
   const [nowMs, setNowMs] = useState(() => Date.now());
 
   useEffect(() => {
@@ -292,9 +313,12 @@ export default function SwitchDashboard({ wsUrl = DEFAULT_WS_URL }) {
 
   const columns = useMemo(() => groupDevices(devices), [devices]);
 
-  const attentionDevices = useMemo(
-    () => Array.from(devices.values()).filter((d) => needsAttention(states.get(d.device_id)?.state)),
-    [devices, states]
+  // snapshot's incident list is all-time (persistence.ts's loadAllIncidents,
+  // for dashboard history use later) - the banner only cares what's still
+  // open right now, same convention as persistence.ts's loadOpenIncidents.
+  const openIncidents = useMemo(
+    () => incidents.filter((incident) => incident.lifecycle_stage !== "Resolved"),
+    [incidents]
   );
 
   return (
@@ -305,7 +329,7 @@ export default function SwitchDashboard({ wsUrl = DEFAULT_WS_URL }) {
           <span className="kiosk-conn-dot" data-status={connectionStatus} aria-hidden="true" />
         </header>
 
-        <Banner ok={attentionDevices.length === 0} siteName={site.name} attentionDevices={attentionDevices} states={states} />
+        <Banner ok={openIncidents.length === 0} siteName={site.name} openIncidents={openIncidents} devices={devices} states={states} />
 
         {columns.size === 0 ? (
           <p className="kiosk-empty">{connectionStatus === "open" ? "No devices configured." : "Connecting…"}</p>

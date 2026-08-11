@@ -1,0 +1,11 @@
+{
+  "name": "run-dashboard-skill",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Driver dependencies for the run-dashboard agent skill - not part of the RackWatch app itself.",
+  "type": "module",
+  "dependencies": {
+    "playwright-core": "^1.62.1",
+    "ws": "^8.18.0"
+  }
+}
