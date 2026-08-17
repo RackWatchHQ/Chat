@@ -72,6 +72,9 @@ export interface Device {
   dependencies: string[];        // device_ids this device relies on upstream (8.8)
   checks: string[];              // check_ids configured to evaluate this device
   adapter_refs: AdapterReference[];
+  monitored_interfaces?: string[]; // ifIndex list for the SNMP interface-health check (snmp-adapter.ts).
+                                     // Opt-in only - unset means that check is skipped entirely for this
+                                     // device, never "monitor every port" (DM-002: never guess/assume)
   metadata: Record<string, unknown>; // controlled extensible attributes (DM-009)
   current_state: DeviceState;    // set ONLY by the State Engine - never by an adapter or the UI (5.1)
 }
@@ -131,6 +134,11 @@ export interface Evidence {
   device_id: string;
   derived_from: string[];        // observation_ids that produced this evidence
   polarity: EvidencePolarity;
+  severity?: "moderate" | "severe"; // orthogonal to polarity - only meaningful when polarity is
+                                      // "Negative". FAIL-SAFE DEFAULT: absent severity is treated as
+                                      // "severe" by the State Engine, never silently downgraded to
+                                      // "moderate" - an unclassified failure must never under-react
+                                      // into a softer state than the codebase already produces today.
   description: string;            // human-readable, e.g. "Repeated ICMP timeouts"
   weight: "strong" | "moderate" | "weak";
   timestamp: string;

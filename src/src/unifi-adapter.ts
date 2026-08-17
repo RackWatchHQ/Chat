@@ -164,6 +164,117 @@ function normaliseState(rawState: unknown): "online" | "offline" | "unknown" {
 // endpoint rather than pulling full device data just to check the
 // controller is reachable and authenticating correctly.
 
+// ---- Enumeration calls (unmonitored-device-job.ts) ----
+// Unlike runUnifiDeviceCheck above, these list EVERYTHING the
+// controller knows about rather than asking about one already-known
+// device - the reconciliation job's whole job is finding MACs
+// RackWatch doesn't have a Device record for yet. Genuinely new,
+// unverified API surface: unlike the per-device endpoint above, there
+// is no prior working code in this repo to base these on. Same
+// caveat as the file header - verify paths/response shapes against
+// your own controller before relying on this in production.
+//
+// Deliberately separate functions with deliberately different
+// signatures, not one parameterised call: listUnifiDevices (switches,
+// APs - infrastructure hardware) has no VLAN concept and takes no
+// VLAN parameter at all; listUnifiClients (endpoints connected to the
+// network) REQUIRES one, explicitly, at the type level - there is no
+// shared "scoping" code path for the two to accidentally share.
+
+export interface UnifiEnumeratedDevice {
+  mac: string;
+  name?: string;   // human-readable label, when the controller provides one - DM-002: absent, not guessed
+  raw?: unknown;    // full raw payload, uninterpreted, same "don't lose data we don't yet parse" convention
+                     // as UnifiDeviceResult.raw_device above
+}
+
+export interface UnifiEnumeratedClient {
+  mac: string;
+  name?: string;
+  vlan_id?: string; // the VLAN this specific client was actually seen on, as reported by the controller -
+                      // kept even though the caller already filtered by vlan_id, for diagnostics/logging
+  raw?: unknown;
+}
+
+export interface UnifiListResult<T> {
+  items: T[];
+  error?: string; // populated only on an unexpected failure (not "zero results") - same distinction as
+                    // runUnifiDeviceCheck draws elsewhere in this file
+}
+
+export async function listUnifiDevices(config: UnifiIntegrationConfig): Promise<UnifiListResult<UnifiEnumeratedDevice>> {
+  const url = `${config.base_url}/sites/${config.site_id}/devices`;
+
+  try {
+    const response = await fetch(url, { headers: { "X-API-Key": config.api_key, Accept: "application/json" } });
+    if (!response.ok) {
+      return { items: [], error: `UniFi API returned HTTP ${response.status} for ${url}` };
+    }
+    const body = await response.json();
+    const rawList = extractListPayload(body);
+    return { items: rawList.map(toEnumeratedDevice) };
+  } catch (err) {
+    return { items: [], error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+// vlanId is required, not optional - see file header. Fetches the
+// full client list and filters client-side rather than trusting an
+// assumed server-side query-param filter this file has no way to
+// verify exists on your controller version (DM-002: don't guess).
+export async function listUnifiClients(
+  config: UnifiIntegrationConfig,
+  vlanId: string
+): Promise<UnifiListResult<UnifiEnumeratedClient>> {
+  const url = `${config.base_url}/sites/${config.site_id}/clients`;
+
+  try {
+    const response = await fetch(url, { headers: { "X-API-Key": config.api_key, Accept: "application/json" } });
+    if (!response.ok) {
+      return { items: [], error: `UniFi API returned HTTP ${response.status} for ${url}` };
+    }
+    const body = await response.json();
+    const rawList = extractListPayload(body);
+    const allClients = rawList.map(toEnumeratedClient);
+    return { items: allClients.filter((c) => c.vlan_id === vlanId) };
+  } catch (err) {
+    return { items: [], error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+// Tolerates the same { meta, data } vs. bare-array response shapes
+// fetchDeviceState already tolerates above (8.10).
+function extractListPayload(body: unknown): unknown[] {
+  const data = (body as { data?: unknown })?.data ?? body;
+  return Array.isArray(data) ? data : [];
+}
+
+function toEnumeratedDevice(raw: unknown): UnifiEnumeratedDevice {
+  const r = raw as { mac?: unknown; name?: unknown };
+  return {
+    mac: typeof r?.mac === "string" ? r.mac.toLowerCase() : "",
+    name: typeof r?.name === "string" ? r.name : undefined,
+    raw,
+  };
+}
+
+function toEnumeratedClient(raw: unknown): UnifiEnumeratedClient {
+  const r = raw as { mac?: unknown; name?: unknown; hostname?: unknown; vlan_id?: unknown; network_id?: unknown };
+  return {
+    mac: typeof r?.mac === "string" ? r.mac.toLowerCase() : "",
+    name: typeof r?.name === "string" ? r.name : typeof r?.hostname === "string" ? r.hostname : undefined,
+    vlan_id:
+      typeof r?.vlan_id === "string"
+        ? r.vlan_id
+        : typeof r?.vlan_id === "number"
+          ? String(r.vlan_id)
+          : typeof r?.network_id === "string"
+            ? r.network_id
+            : undefined,
+    raw,
+  };
+}
+
 export async function fetchAdapterHealth(config: UnifiIntegrationConfig): Promise<AdapterHealth> {
   const url = `${config.base_url}/info`;
 

@@ -11,11 +11,13 @@
   },
   "dependencies": {
     "net-snmp": "^3.26.3",
+    "nodemailer": "^9.0.5",
     "ws": "^8.18.0"
   },
   "devDependencies": {
     "@types/net-snmp": "^3.23.0",
     "@types/node": "^22.15.0",
+    "@types/nodemailer": "^8.0.1",
     "@types/ws": "^8.5.13",
     "tsx": "^4.19.2",
     "typescript": "^5.7.3"

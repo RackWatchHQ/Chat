@@ -20,6 +20,17 @@ import "./switch-dashboard.css";
 const DEFAULT_WS_URL = import.meta.env.VITE_RACKWATCH_WS_URL ?? "ws://localhost:8080";
 const MAX_RECONNECT_DELAY_MS = 15_000;
 
+// Baked in at build time (VITE_RACKWATCH_WS_TOKEN) - the server
+// rejects the connection at handshake if this doesn't match
+// RACKWATCH_WS_TOKEN (see ws-server.ts). Browser WebSocket can't set
+// custom headers, so this travels as a query param.
+const WS_TOKEN = import.meta.env.VITE_RACKWATCH_WS_TOKEN ?? "";
+
+function withAuthToken(url) {
+  const separator = url.includes("?") ? "&" : "?";
+  return `${url}${separator}token=${encodeURIComponent(WS_TOKEN)}`;
+}
+
 // States that warrant "attention" - Dependency and Unknown deliberately
 // don't count. A device that's only Dependency is a reflection of an
 // upstream fault that's already triggering the banner on its own
@@ -107,7 +118,7 @@ function useRackWatchSocket(url) {
 
     function connect() {
       setConnectionStatus("connecting");
-      socket = new WebSocket(url);
+      socket = new WebSocket(withAuthToken(url));
 
       socket.onopen = () => {
         if (cancelled) return;

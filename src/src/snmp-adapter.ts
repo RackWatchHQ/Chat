@@ -20,9 +20,19 @@
 //   - open or close Incidents
 //   - determine UI presentation
 //
+// Also exports a second check, runSnmpInterfaceHealthCheck: per-
+// interface error-rate/utilization counters (ifTable/ifXTable) for a
+// device's opted-in Device.monitored_interfaces, feeding the Degraded
+// state (state-engine.ts). Like the baseline check above, this file
+// only reports RAW current counter values - it does not compute
+// rates, does not compare against a prior reading, and does not
+// decide what counts as "elevated." Counters are cumulative, so a
+// single reading is meaningless without a prior one to diff against;
+// that comparison (and the wraparound/reboot handling it requires)
+// is the State Engine's job, same division of labour as everywhere
+// else in this file.
+//
 // Deliberately NOT done in this file (future steps):
-//   - Per-interface polling (ifTable/ifOperStatus) - that's richer,
-//     vendor/topology-adapter territory, not the baseline check.
 //   - SNMPv3 (user-based security). RWS-002 §2.5 only speaks of
 //     community strings for the baseline layer, so this file supports
 //     v1/v2c only - v3 is a separate concern if/when it's needed.
@@ -44,7 +54,34 @@ const SCHEMA_VERSION = "1.0.0"; // DM-008: observation schema versioned independ
 const OID_SYS_DESCR = "1.3.6.1.2.1.1.1.0";
 const OID_SYS_OBJECT_ID = "1.3.6.1.2.1.1.2.0";
 const OID_SYS_UP_TIME = "1.3.6.1.2.1.1.3.0";
+const OID_SYS_NAME = "1.3.6.1.2.1.1.5.0";
 const BASELINE_OIDS = [OID_SYS_DESCR, OID_SYS_OBJECT_ID, OID_SYS_UP_TIME];
+const IDENTITY_OIDS = [OID_SYS_DESCR, OID_SYS_OBJECT_ID, OID_SYS_NAME, OID_SYS_UP_TIME]; // discovery-adapter.ts Tier 3
+
+// ---- Standard IF-MIB interface-table OIDs (RFC 2863) ----
+// ifHCInOctets/ifHCOutOctets (64-bit) are used instead of the 32-bit
+// ifInOctets/ifOutOctets - a 2.5G link can wrap a 32-bit octet counter
+// within a normal poll interval, which would look identical to a
+// device reboot to the wraparound check in state-engine.ts. ifInErrors/
+// ifOutErrors stay 32-bit (Counter32) - RFC 2863 has no 64-bit error
+// counter variants, and error counts don't grow fast enough to wrap
+// within a poll interval the way octet counts do.
+
+const IF_IN_ERRORS_BASE = "1.3.6.1.2.1.2.2.1.14";
+const IF_OUT_ERRORS_BASE = "1.3.6.1.2.1.2.2.1.20";
+const IF_HC_IN_OCTETS_BASE = "1.3.6.1.2.1.31.1.1.1.6";
+const IF_HC_OUT_OCTETS_BASE = "1.3.6.1.2.1.31.1.1.1.10";
+const IF_HIGH_SPEED_BASE = "1.3.6.1.2.1.31.1.1.1.15"; // Mbps - needed to turn an octet delta into a utilization %
+
+// Order matters - decodeInterfaceReadings() below relies on this
+// exact sequence to map a flat varbind array back to named fields.
+const INTERFACE_OID_BASES = [
+  IF_IN_ERRORS_BASE,
+  IF_OUT_ERRORS_BASE,
+  IF_HC_IN_OCTETS_BASE,
+  IF_HC_OUT_OCTETS_BASE,
+  IF_HIGH_SPEED_BASE,
+] as const;
 
 // ---- Configuration for one SNMP check ----
 // Mirrors IcmpCheckConfig in icmp-adapter.ts as closely as the
@@ -111,13 +148,16 @@ export interface SnmpResult {
 
 // ---- Low-level SNMP GET ----
 // Uses the net-snmp package (pure JS, no OS binary dependency to
-// provision on either the MVP Pi 5 or v0.9 CM5 Lite image). Never
-// throws on a normal timeout - only on something unexpected (bad
-// hostname, malformed response). A failed poll is data, not an
-// exception: the same principle icmp-adapter.ts and unifi-adapter.ts
-// apply for their own unavailability cases.
+// provision on either the MVP Pi 5 or v0.9 CM5 Lite image). Shared by
+// both checks in this file - session creation, the "error" listener,
+// and cleanup are identical regardless of which OIDs get requested.
+// Throws on anything beyond a normal timeout; each caller decides how
+// to turn "timed out" vs. "something else went wrong" into its own
+// result shape, same principle icmp-adapter.ts and unifi-adapter.ts
+// apply for their own unavailability cases - a failed poll is data,
+// not an exception, but what KIND of data is check-specific.
 
-async function querySystemGroup(config: SnmpCheckConfig): Promise<SnmpResult> {
+async function fetchVarbinds(config: SnmpSessionConfig, oids: string[]): Promise<snmp.Varbind[]> {
   const version = config.version === "1" ? snmp.Version1 : snmp.Version2c;
 
   const session = snmp.createSession(config.address, config.community, {
@@ -136,7 +176,36 @@ async function querySystemGroup(config: SnmpCheckConfig): Promise<SnmpResult> {
   });
 
   try {
-    const varbinds = await Promise.race([getVarbinds(session, BASELINE_OIDS), socketError]);
+    return await Promise.race([getVarbinds(session, oids), socketError]);
+  } finally {
+    session.close();
+  }
+}
+
+interface SnmpSessionConfig {
+  address: string;
+  community: string;
+  version?: "1" | "2c";
+  port?: number;
+  timeout_seconds: number;
+  retries: number;
+}
+
+function getVarbinds(session: snmp.Session, oids: string[]): Promise<snmp.Varbind[]> {
+  return new Promise((resolve, reject) => {
+    session.get(oids, (error, varbinds) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve(varbinds ?? []);
+    });
+  });
+}
+
+async function querySystemGroup(config: SnmpCheckConfig): Promise<SnmpResult> {
+  try {
+    const varbinds = await fetchVarbinds(config, BASELINE_OIDS);
 
     return {
       reachable: true,
@@ -158,21 +227,61 @@ async function querySystemGroup(config: SnmpCheckConfig): Promise<SnmpResult> {
       reachable: false,
       error: err instanceof Error ? err.message : String(err),
     };
-  } finally {
-    session.close();
   }
 }
 
-function getVarbinds(session: snmp.Session, oids: string[]): Promise<snmp.Varbind[]> {
-  return new Promise((resolve, reject) => {
-    session.get(oids, (error, varbinds) => {
-      if (error) {
-        reject(error);
-        return;
-      }
-      resolve(varbinds ?? []);
-    });
-  });
+// ---- Multi-community identity query (discovery-adapter.ts Tier 3) ----
+// Different usage shape from querySystemGroup above: that one already
+// knows a device's single configured community string (from an
+// Integration). This one is trying to identify a host discovered by
+// an ARP sweep that RackWatch has no prior SNMP config for at all -
+// it tries each candidate community in order, first successful
+// response wins. Never throws: a host that answers to none of them is
+// exactly as valid an outcome as one that does (discovery-adapter.ts
+// must still report it from Tier 1/2 alone), so every failure mode
+// here - timeout, bad community, malformed response - just means "try
+// the next string," and running out of strings means "no identity
+// data this cycle," not an error to propagate.
+
+export interface SnmpIdentityResult {
+  sys_descr?: string;
+  sys_object_id?: string;
+  sys_name?: string;
+  uptime_seconds?: number; // converted from TimeTicks (centiseconds) - NOT the same unit as
+                             // SnmpResult.sys_up_time_ticks above, which stays in raw ticks
+  community_used?: string;
+}
+
+export async function queryDeviceIdentity(
+  address: string,
+  communityStrings: string[],
+  timeoutSeconds: number,
+  retries: number,
+  port?: number // defaults to 161 (via fetchVarbinds/createSession) - same optionality as SnmpCheckConfig.port
+                 // above; exists for the rare non-standard-port site, and for testing without root
+                 // (binding a real agent to 161 needs elevated privileges, a high port doesn't)
+): Promise<SnmpIdentityResult | undefined> {
+  for (const community of communityStrings) {
+    try {
+      const varbinds = await fetchVarbinds({ address, community, port, timeout_seconds: timeoutSeconds, retries }, IDENTITY_OIDS);
+      const ticks = readTimeTicks(varbinds[3]);
+      return {
+        sys_descr: readOctetString(varbinds[0]),
+        sys_object_id: readOid(varbinds[1]),
+        sys_name: readOctetString(varbinds[2]),
+        uptime_seconds: ticks !== undefined ? Math.round(ticks / 100) : undefined,
+        community_used: community,
+      };
+    } catch {
+      // Timeout, auth failure, malformed response - whatever the
+      // reason, this community didn't work. Try the next one rather
+      // than distinguishing why (unlike querySystemGroup, there's no
+      // single-community "adapter trouble vs device trouble" call to
+      // make here - trying the next string IS the handling).
+      continue;
+    }
+  }
+  return undefined; // exhausted every configured community - a normal outcome, not an error
 }
 
 // ---- Varbind decoding ----
@@ -195,6 +304,140 @@ function readTimeTicks(varbind: snmp.Varbind): number | undefined {
   if (snmp.isVarbindError(varbind) || varbind.value == null) return undefined;
   const value = Number(varbind.value);
   return Number.isFinite(value) ? value : undefined;
+}
+
+// ============================================================
+// Interface health check - per-interface counters for Degraded
+// detection (state-engine.ts). See file header for the raw-values-
+// only division of labour.
+// ============================================================
+
+// ---- Configuration for one interface-health check ----
+
+export interface SnmpInterfaceCheckConfig {
+  device_id: string;
+  address: string;
+  community: string;
+  version?: "1" | "2c";
+  port?: number;
+  timeout_seconds: number;
+  retries: number;
+  interfaces: string[];   // ifIndex list - Device.monitored_interfaces. Caller's responsibility to
+                            // skip this check entirely when empty/unset (opt-in only, see domain-model.ts)
+}
+
+// ---- The raw per-interface result shape this check produces ----
+// Every field is optional and independently absent-able - a varbind
+// error on ONE OID for ONE interface (e.g. a stale ifIndex) shouldn't
+// invalidate the rest of the reading (DM-002: represented as genuinely
+// absent, not guessed at). Octet counters are kept as decimal strings,
+// not numbers - net-snmp decodes Counter64 as a JS bigint, and
+// JSON.stringify cannot serialize a bigint directly, which matters
+// here because Observation.result round-trips through JSON in both
+// persistence.ts and ws-server.ts.
+
+export interface InterfaceCounterReading {
+  if_index: string;
+  if_in_errors?: number;
+  if_out_errors?: number;
+  if_hc_in_octets?: string;
+  if_hc_out_octets?: string;
+  if_high_speed_mbps?: number;
+}
+
+export interface SnmpInterfaceHealthResult {
+  readings: InterfaceCounterReading[]; // one entry per requested ifIndex that responded at all
+  error?: string;                       // populated only on an unexpected failure (not a normal timeout)
+}
+
+// ---- The check's one job: read current counter values for the
+// requested interfaces, and report what happened. No rate/delta
+// computation, no wraparound handling - see file header. ----
+
+export async function runSnmpInterfaceHealthCheck(config: SnmpInterfaceCheckConfig): Promise<Observation> {
+  const { device_id } = config;
+  const startedAt = Date.now();
+
+  const result = await queryInterfaceCounters(config);
+
+  return {
+    observation_id: randomUUID(),
+    timestamp: new Date().toISOString(),
+    target: device_id,
+    source: "snmp-adapter",
+    type: "snmp_interface_health",
+    result,
+    quality: "corroborating", // same baseline tier as the reachability check
+    freshness_seconds: Math.round((Date.now() - startedAt) / 1000),
+    schema_version: SCHEMA_VERSION,
+  };
+}
+
+async function queryInterfaceCounters(config: SnmpInterfaceCheckConfig): Promise<SnmpInterfaceHealthResult> {
+  if (config.interfaces.length === 0) {
+    // Nothing opted in - don't even hit the network. Callers are
+    // expected to skip this check entirely in this case (domain-model.ts),
+    // but this guard keeps the function itself safe to call regardless.
+    return { readings: [] };
+  }
+
+  try {
+    const varbinds = await fetchVarbinds(config, buildInterfaceOids(config.interfaces));
+    return { readings: decodeInterfaceReadings(config.interfaces, varbinds) };
+  } catch (err) {
+    if (err instanceof Error && err.name === "RequestTimedOutError") {
+      // No response within timeout x retries - a normal, expected
+      // outcome, not an error condition (mirrors the reachability check).
+      return { readings: [] };
+    }
+    return {
+      readings: [],
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+// Builds a flat OID list across every requested interface, in the
+// fixed INTERFACE_OID_BASES order - decodeInterfaceReadings() below
+// relies on that same order to map results back to named fields.
+function buildInterfaceOids(interfaces: string[]): string[] {
+  const oids: string[] = [];
+  for (const ifIndex of interfaces) {
+    for (const base of INTERFACE_OID_BASES) {
+      oids.push(`${base}.${ifIndex}`);
+    }
+  }
+  return oids;
+}
+
+function decodeInterfaceReadings(interfaces: string[], varbinds: snmp.Varbind[]): InterfaceCounterReading[] {
+  const fieldsPerInterface = INTERFACE_OID_BASES.length;
+  return interfaces.map((ifIndex, i) => {
+    const offset = i * fieldsPerInterface;
+    return {
+      if_index: ifIndex,
+      if_in_errors: readCounter32(varbinds[offset]),
+      if_out_errors: readCounter32(varbinds[offset + 1]),
+      if_hc_in_octets: readCounter64(varbinds[offset + 2]),
+      if_hc_out_octets: readCounter64(varbinds[offset + 3]),
+      if_high_speed_mbps: readCounter32(varbinds[offset + 4]), // ifHighSpeed is Gauge32 - same plain-number decode
+    };
+  });
+}
+
+function readCounter32(varbind: snmp.Varbind): number | undefined {
+  if (snmp.isVarbindError(varbind) || varbind.value == null) return undefined;
+  const value = Number(varbind.value);
+  return Number.isFinite(value) ? value : undefined;
+}
+
+function readCounter64(varbind: snmp.Varbind): string | undefined {
+  if (snmp.isVarbindError(varbind) || varbind.value == null) return undefined;
+  // net-snmp decodes Counter64 as a bigint - kept as a decimal string
+  // here rather than a number, both to avoid precision loss on a
+  // high-throughput long-uptime link and because JSON.stringify cannot
+  // serialize a bigint directly (see InterfaceCounterReading above).
+  return typeof varbind.value === "bigint" ? varbind.value.toString() : String(varbind.value);
 }
 
 // ---- Formal plugin conformance (v0.9 spec §4.4) ----

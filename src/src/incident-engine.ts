@@ -153,11 +153,17 @@ export function evaluateIncidents(
       continue;
     }
 
-    if (event.to_state === "Critical") {
+    if (event.to_state === "Critical" || event.to_state === "Degraded") {
+      // Degraded takes the same join-or-create path as Critical - the
+      // difference between them is a device-state threshold
+      // (state-engine.ts), not whether it's worth correlating into an
+      // incident. Without this branch, a Degraded transition matched
+      // none of the cases above and fell through untouched: no
+      // incident, no timeline entry, no visibility.
       const owning = findIncidentContainingDevice(incidents, deviceId);
       if (owning) {
-        // Same device re-entering Critical inside an incident that
-        // hadn't fully closed (e.g. it was Recovering) - re-attach
+        // Same device re-entering Critical/Degraded inside an incident
+        // that hadn't fully closed (e.g. it was Recovering) - re-attach
         // rather than opening a duplicate (IE-001, IE-003).
         addDeviceToIncident(owning, deviceId, event, now);
         owning.consecutive_healthy_cycles = 0;

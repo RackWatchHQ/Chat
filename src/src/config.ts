@@ -20,6 +20,15 @@
 // UI-only fields to the core Device shape in domain-model.ts. A device
 // with no dashboard_group renders directly under its column with no
 // subheading (see switch-dashboard.jsx).
+//
+// MAC addresses: none of the devices below have a "mac" entry in
+// addresses[] - fine for this placeholder data, but if
+// unmonitored-device-job.ts (MVP stopgap) is enabled, ANY known
+// Device without a recorded MAC is invisible to its UniFi-vs-known-
+// Device diff and can get permanently misflagged as "unmonitored."
+// Add a { type: "mac", value: "..." } entry per device before
+// enabling that job - see its file header for why this is a
+// documented requirement rather than something the job works around.
 // ============================================================
 
 import type { Device, Check, DependencyRecord, Integration } from "./domain-model";
@@ -30,6 +39,17 @@ export const siteInfo = {
   name: "Rack 1",
   config_label: "rackwatch-v0.1",
 };
+
+// Which OS-level network interfaces (as os.networkInterfaces() names
+// them, e.g. "eth1") are RackWatch Monitoring ports - discovery-adapter.ts
+// sweeps exactly these, never every interface on the host. The OS has
+// no concept of "this is a Monitoring port vs. Management/loopback,"
+// so this mapping has to be explicit config, not inferred - the actual
+// subnet/CIDR for each one IS read live via OS introspection (never
+// duplicated here), only WHICH interfaces to introspect is config.
+// PLACEHOLDER - replace with your real interface names before running
+// discovery-adapter.ts against production hardware.
+export const monitoringInterfaceNames = ["eth1", "eth2"];
 
 export const integrations: Integration[] = [
   {
