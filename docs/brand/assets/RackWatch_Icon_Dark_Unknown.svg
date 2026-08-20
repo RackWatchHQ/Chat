@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="190" height="190" viewBox="0 0 190 190" role="img" aria-labelledby="title">
+<title id="title">RackWatch icon — unknown, dark</title>
+<g>
+  <rect width="190" height="190" rx="31" fill="#292E32"/>
+  <rect x="42" y="48" width="101" height="40" rx="10" fill="none" stroke="#F4F3EF" stroke-width="7"/>
+  <circle cx="58" cy="68" r="4" fill="#F4F3EF"/>
+  <rect x="42" y="103" width="101" height="40" rx="10" fill="none" stroke="#F4F3EF" stroke-width="7"/>
+  <circle cx="58" cy="123" r="4" fill="#F4F3EF"/>
+  <circle cx="159" cy="33" r="26" fill="#101215"/>
+  <circle cx="159" cy="33" r="17" fill="#6F777C"/>
+</g>
+</svg>
